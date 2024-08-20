@@ -1,9 +1,10 @@
-use axum::{extract::State, response::Html, routing::get, Json, Router};
+use axum::{http::StatusCode, response::{Html, IntoResponse}, routing::{get, post}, Router};
 use diesel::prelude::*;
 use dotenv::*;
-use notes::models::*;
-use notes::note::*;
 use diesel::r2d2::*;
+use routes::notes::notes::{create_note, get_notes};
+
+mod routes;
 
 #[derive(Clone)]
 struct AppState {
@@ -25,9 +26,8 @@ async fn main() {
 
     let app = Router::new()
       .route("/health_check", get(health_check))
-      .route("/query_from_db", get(query_from_db))
-      .route("/get_notes", get(get_notes))
-      .route("/", get(handler))
+      .route("/notes", get(get_notes).post(create_note))
+      .fallback(handle_404)
       .with_state(AppState { pool });
 
     // run it
@@ -38,56 +38,10 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn health_check() -> &'static str {
-    "I'm alive!"
+async fn health_check() -> impl IntoResponse {
+    (StatusCode::OK, Html("I'm alive uwu".to_string()))
 }
 
-async fn handler() -> Html<String> {
-    let file_path = "./src/public/index.html";
-
-    let html = std::fs::read_to_string(file_path);
-
-    match html {
-        Ok(html) => {
-          Html(html)
-        },
-        Err(_) => Html(String::from("Error reading file")),
-    }
-}
-
-async fn query_from_db(State(state): State<AppState>) -> String {
-
-    use notes::schema::posts;
-
-    let pool = &state.pool;
-
-    let mut connection = pool.get().expect("Couldn't get connection from pool");
-
-    let results = posts::table
-        .limit(5)
-        .load::<Post>(&mut connection)
-        .expect("Error loading posts");
-
-    for post in results {
-        println!("{:?}", post.title);
-    }
-
-    String::from("Query from db")
-}
-
-async fn get_notes(State(state): State<AppState>) -> Json<Vec<Note>> {
-    use notes::schema::notes;
-
-    let pool = &state.pool;
-
-    let mut connection = pool.get().expect("Couldn't get connection from pool");
-
-    let results = notes::table
-        .limit(5)
-        .load::<Note>(&mut connection);
-
-    match results {
-        Ok(results) => Json(results),
-        Err(_) => Json(Vec::new()),
-    }
+async fn handle_404() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, Html("Page not found".to_string()))
 }
